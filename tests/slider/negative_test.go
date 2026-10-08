@@ -1,0 +1,54 @@
+package slider_test
+
+import (
+	"context"
+
+	graphtest "github.com/MamangRust/microservice-ecommerce-grpc-apigateway/graphtest"
+	pbslider "github.com/MamangRust/microservice-ecommerce-grpc-pb/slider"
+
+	"github.com/MamangRust/microservice-ecommerce-shared/errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+// gapi: non-existent slider must map to codes.NotFound (404), not Internal.
+func (s *SliderGapiTestSuite) TestSliderGapiNotFound() {
+	ctx := context.Background()
+	_, err := s.queryClient.FindById(ctx, &pbslider.FindByIdSliderRequest{Id: 999999})
+	s.Require().Error(err)
+	st, ok := status.FromError(err)
+	s.Require().True(ok, "expected a gRPC status error")
+	s.Equal(codes.NotFound, st.Code(), "non-existent slider must be NotFound, got %v: %s", st.Code(), st.Message())
+}
+
+// graphql: non-existent slider must surface a not-found error.
+func (s *SliderGraphqlTestSuite) TestSliderGraphqlNotFound() {
+	resp, err := graphtest.ExecuteGraphQL(s.handler, `
+		mutation TrashedSlider($input: FindByIdSliderRequest!) {
+			trashedSlider(input: $input) { status }
+		}
+	`, map[string]interface{}{"input": map[string]interface{}{"id": 999999}}, "")
+	s.Require().NoError(err)
+	s.Require().NotEmpty(resp.Errors, "non-existent slider must return an error")
+}
+
+// graphql: zero slider ID must be rejected as a bad request.
+func (s *SliderGraphqlTestSuite) TestSliderGraphqlInvalidID() {
+	resp, err := graphtest.ExecuteGraphQL(s.handler, `
+		mutation TrashedSlider($input: FindByIdSliderRequest!) {
+			trashedSlider(input: $input) { status }
+		}
+	`, map[string]interface{}{"input": map[string]interface{}{"id": 0}}, "")
+	s.Require().NoError(err)
+	s.Require().NotEmpty(resp.Errors, "zero slider ID must return an error")
+}
+
+// repository: FindByID on a non-existent ID must return a typed not-found error.
+func (s *SliderRepositoryTestSuite) TestSliderFindByIDNotFound() {
+	ctx := context.Background()
+	_, err := s.repo.SliderQuery.FindByID(ctx, 999999)
+	s.Require().Error(err)
+	var appErr *errors.AppError
+	s.Require().ErrorAs(err, &appErr)
+	s.Equal(errors.ErrorTypeNotFound, appErr.Type, "expected not-found error type, got %s: %v", appErr.Type, err)
+}
